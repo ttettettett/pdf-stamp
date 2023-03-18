@@ -1,0 +1,232 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <meta charset="UTF-8">
+    <title>PDF捺印</title>
+    <style>
+        .container {
+            max-width: 800px;
+            margin: 0 auto;
+            text-align: center;
+        }
+
+        .settings {
+            margin-bottom: 30px;
+        }
+
+        .setting-item {
+            margin: 10px 0;
+        }
+
+        .position-setting {
+            display: flex;
+            justify-content: space-between;
+        }
+
+        .pdf-container {
+            margin: 30px 0;
+            border: 1px solid #ccc;
+            height: 500px;
+            overflow-y: scroll;
+        }
+
+        .settings-list {
+            margin-top: 30px;
+        }
+
+        #download-pdf {
+            margin-top: 30px;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="container">
+        <h1>PDF捺印</h1>
+        <div class="settings">
+            <h2>捺印の設定</h2>
+            <div class="setting-item">
+                <label>捺印の位置：</label>
+                <div class="position-setting">
+                    <div class="position-x">
+                        <label>X座標：</label>
+                        <input type="number" id="position-x" min="0">
+                    </div>
+                    <div class="position-y">
+                        <label>Y座標：</label>
+                        <input type="number" id="position-y" min="0">
+                    </div>
+                </div>
+            </div>
+            <div class="setting-item">
+                <label>捺印のサイズ：</label>
+                <input type="number" id="size" min="1">
+            </div>
+            <div class="setting-item">
+                <label>捺印の名前：</label>
+                <input type="text" id="name">
+            </div>
+            <button id="add-setting">設定を追加</button>
+        </div>
+        <div class="pdf-container">
+            <h2>PDFファイルを選択</h2>
+            <input type="file" id="pdf-file">
+        </div>
+        <div class="settings-list">
+            <h2>設定一覧</h2>
+            <ul id="setting-list"></ul>
+        </div>
+        <button id="download-pdf">PDFをダウンロード</button>
+    </div>
+    <script src="pdf.js"></script>
+    <script>
+        // ページの読み込みが完了したら実行する
+        window.onload = function () {
+            // pdf.jsの初期化
+            pdfjsLib.GlobalWorkerOptions.workerSrc = 'pdf.worker.js';
+
+            // 設定の配列
+            const settings = [];
+
+            // PDFファイルの読み込み
+            const pdfFileInput = document.getElementById('pdf-file');
+            pdfFileInput.addEventListener('change', () => {
+                const file = pdfFileInput.files[0];
+                if (file) {
+                    const reader = new FileReader();
+                    reader.readAsArrayBuffer(file);
+                    reader.onload = () => {
+                        const arrayBuffer = reader.result;
+                        // PDFの読み込み
+                        pdfjsLib.getDocument(arrayBuffer).promise.then((pdf) => {
+                            // PDFの読み込みが完了したら、画面に表示する
+                            pdf.getPage(1).then((page) => {
+                                const viewport = page.getViewport({ scale: 1.5 });
+                                const canvas = document.createElement('canvas');
+                                const context = canvas.getContext('2d');
+                                canvas.width = viewport.width;
+                                canvas.height = viewport.height;
+                                const renderContext = {
+                                    canvasContext: context,
+                                    viewport: viewport
+                                };
+                                page.render(renderContext).promise.then(() => {
+                                    const pdfContainer = document.querySelector('.pdf-container');
+                                    pdfContainer.innerHTML = '';
+                                    pdfContainer.appendChild(canvas);
+                                });
+                            });
+                        }
+  });
+
+            // 設定を追加する
+            const addSettingButton = document.getElementById('add-setting');
+            addSettingButton.addEventListener('click', () => {
+                const positionXInput = document.getElementById('position-x');
+                const positionYInput = document.getElementById('position-y');
+                const sizeInput = document.getElementById('size');
+                const nameInput = document.getElementById('name');
+                const setting = {
+                    positionX: positionXInput.value,
+                    positionY: positionYInput.value,
+                    size: sizeInput.value,
+                    name: nameInput.value
+                };
+                settings.push(setting);
+                const settingList = document.getElementById('setting-list');
+                const settingItem = document.createElement('li');
+                settingItem.textContent = setting.name;
+                settingList.appendChild(settingItem);
+            });
+
+            // PDFをダウンロードする
+            const downloadPdfButton = document.getElementById('download-pdf');
+            downloadPdfButton.addEventListener('click', () => {
+                if (settings.length > 0) {
+                    // PDFの読み込み
+                    const file = pdfFileInput.files[0];
+                    const reader = new FileReader();
+                    reader.readAsArrayBuffer(file);
+                    reader.onload = () => {
+                        const arrayBuffer = reader.result;
+                        pdfjsLib.getDocument(arrayBuffer).promise.then((pdf) => {
+                            // 各ページに設定を適用する
+                            const promises = [];
+                            for (let i = 1; i <= pdf.numPages; i++) {
+                                promises.push(applySettingsToPage(pdf, i));
+                            }
+                            Promise.all(promises).then(() => {
+                                // PDFをダウンロードする
+                                pdf.save('output.pdf');
+                            });
+                        });
+                    }
+                }
+            });
+
+            // ページに設定を適用する
+            function applySettingsToPage(pdf, pageNumber) {
+                return new Promise((resolve, reject) => {
+                    pdf.getPage(pageNumber).then((page) => {
+                        // キャンバスの作成
+                        const viewport = page.getViewport({ scale: 1 });
+                        const canvas = document.createElement('canvas');
+                        const context = canvas.getContext('2d');
+                        canvas.width = viewport.width;
+                        canvas.height = viewport.height;
+                        // PDFをキャンバスに描画する
+                        const renderContext = {
+                            canvasContext: context,
+                            viewport: viewport
+                        };
+                        page.render(renderContext).promise.then(() => {
+                            // 各設定について、キャンバスに描画する
+                            settings.forEach((setting) => {
+                                const positionX = parseInt(setting.positionX);
+                                const positionY = parseInt(setting.positionY);
+                                const size = parseInt(setting.size);
+                                context.beginPath();
+                                context.ellipse(positionX, positionY, size / 2, size / 2, 0, 0, Math.PI * 2);
+                                context.stroke();
+                            });
+                            // キャンバスの内容をPDFに反映する
+                            const imageData = canvas.toDataURL('image/jpeg');
+                            const image = new Image();
+                            image.src = imageData;
+                            image.onload = () => {
+                                const pageWidth = page.getViewport({ scale: 1 }).width;
+                                const pageHeight = page.getViewport({ scale: 1 }).height;
+                                const pdfCanvas = document.createElement('canvas');
+                                pdfCanvas.width = pageWidth;
+                                pdfCanvas.height = pageHeight;
+                                const pdfContext = pdfCanvas.getContext('2d');
+                                pdfContext.drawImage(image, 0, 0, pageWidth, pageHeight);
+                                // PDFに反映する
+                                const pdfData = pdfCanvas.toDataURL('application/pdf');
+                                const pdfDataUri = pdfData.replace('data:image/png;base64,', '');
+                                const pdfDataBytes = window.atob(pdfDataUri);
+                                const array = new Uint8Array(pdfDataBytes.length);
+                                for (let i = 0; i < pdfDataBytes.length; i++) {
+                                    array[i] = pdfDataBytes.charCodeAt(i);
+                                }
+                                page.cleanup();
+                                page.destroy();
+                                pdf.addPage();
+                                pdf.saveGraphicsState();
+                                pdf.setFontSize(10);
+                                pdf.text(20, pageHeight - 20, 'PDF捺印 by ChatGPT');
+                                pdf.restoreGraphicsState();
+                                pdf.addImage(array, 'JPEG', 0, 0, pageWidth, pageHeight);
+                                resolve();
+                            };
+                        });
+                    });
+                });
+            }
+        };
+    </script>
+
+</body>
+
+</html>
